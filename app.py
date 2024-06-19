@@ -82,6 +82,22 @@ def get_vix_value(date):
     else:
         return None
 
+# Function to fetch SPY same day OHLC values and return
+def get_spy_same_day_ohlc_and_return(date):
+    spy = yf.Ticker("SPY")
+    start_date = datetime.strptime(date, '%m/%d/%y').strftime('%Y-%m-%d')
+    end_date = (datetime.strptime(date, '%m/%d/%y') + timedelta(days=1)).strftime('%Y-%m-%d')
+    spy_data = spy.history(start=start_date, end=end_date)
+    if not spy_data.empty:
+        open_price = spy_data['Open'][0]
+        high_price = spy_data['High'][0]
+        low_price = spy_data['Low'][0]
+        close_price = spy_data['Close'][0]
+        same_day_return = ((close_price - open_price) / open_price) * 100
+        return open_price, high_price, low_price, close_price, same_day_return
+    else:
+        return None, None, None, None, None
+
 # Function to fetch SPY next day returns
 def get_spy_next_day_return(date):
     spy = yf.Ticker("SPY")
@@ -96,6 +112,57 @@ def get_spy_next_day_return(date):
         return next_day_return
     else:
         return None
+
+# Function to identify candlestick pattern
+def identify_candlestick_pattern(open_price, high_price, low_price, close_price, prev_open, prev_high, prev_low, prev_close):
+    # Calculate real body and shadow lengths
+    real_body = abs(close_price - open_price)
+    upper_shadow = high_price - max(open_price, close_price)
+    lower_shadow = min(open_price, close_price) - low_price
+    
+    patterns = []
+
+    if real_body <= 0.1 * (high_price - low_price):
+        if open_price == close_price:
+            patterns.append("Doji")
+        elif close_price == high_price and open_price == low_price:
+            patterns.append("Dragonfly Doji")
+        elif close_price == low_price and open_price == high_price:
+            patterns.append("Gravestone Doji")
+    elif open_price < close_price:  # Bullish patterns
+        if (close_price - open_price) > 2 * upper_shadow and (close_price - open_price) > 2 * lower_shadow:
+            patterns.append("Marubozu White")
+        elif upper_shadow <= real_body * 0.1 and lower_shadow >= real_body:
+            patterns.append("Hammer")
+        elif lower_shadow <= real_body * 0.1 and upper_shadow >= real_body:
+            patterns.append("Inverted Hammer")
+        elif prev_close > prev_open and open_price < prev_close and close_price > prev_open:
+            patterns.append("Engulfing Bull")
+    elif open_price > close_price:  # Bearish patterns
+        if (open_price - close_price) > 2 * upper_shadow and (open_price - close_price) > 2 * lower_shadow:
+            patterns.append("Marubozu Black")
+        elif upper_shadow <= real_body * 0.1 and lower_shadow >= real_body:
+            patterns.append("Hammer")
+        elif lower_shadow <= real_body * 0.1 and upper_shadow >= real_body:
+            patterns.append("Inverted Hammer")
+        elif prev_open > prev_close and close_price < prev_open and open_price > prev_close:
+            patterns.append("Engulfing Bear")
+
+    # Spinning tops
+    if real_body <= 0.5 * (high_price - low_price) and real_body > 0.1 * (high_price - low_price):
+        if open_price < close_price:
+            patterns.append("Spinning Top White")
+        else:
+            patterns.append("Spinning Top Black")
+    
+    # Harami pattern (requires previous day's data)
+    if prev_open and prev_high and prev_low and prev_close:
+        if prev_open > prev_close and open_price > close_price and open_price < prev_open and close_price > prev_close:
+            patterns.append("Harami")
+        elif prev_close > prev_open and close_price < prev_close and open_price > prev_open and close_price < prev_open:
+            patterns.append("Harami")
+
+    return ", ".join(patterns) if patterns else "No Pattern"
 
 # Streamlit App
 st.title("Sentiment Data Parser")
@@ -159,11 +226,26 @@ else:
 if 'text_data' in st.session_state:
     combined_df = pd.concat([combined_df, st.session_state.text_data], ignore_index=True)
 
-# Fetch VIX data for each date and add it to the DataFrame
+# Fetch VIX data, SPY OHLC values, returns, and candlestick patterns for each date and add it to the DataFrame
 if not combined_df.empty:
-    combined_df['VIX'] = combined_df['Date'].apply(lambda x: get_vix_value(x))
+    combined_df[['SPY Open', 'SPY High', 'SPY Low', 'SPY Close', 'SPY Same Day Return (%)']] = combined_df['Date'].apply(
+        lambda x: pd.Series(get_spy_same_day_ohlc_and_return(x))
+    )
     combined_df['SPY Next Day Return (%)'] = combined_df['Date'].apply(lambda x: get_spy_next_day_return(x))
-    st.write("Combined Data with VIX and SPY Next Day Returns:")
+    combined_df['VIX'] = combined_df['Date'].apply(lambda x: get_vix_value(x))
+    
+    # Fetch previous day's OHLC data
+    combined_df[['Prev SPY Open', 'Prev SPY High', 'Prev SPY Low', 'Prev SPY Close']] = combined_df['Date'].apply(
+        lambda x: pd.Series(get_spy_same_day_ohlc_and_return((datetime.strptime(x, '%m/%d/%y') - timedelta(days=1)).strftime('%m/%d/%y'))[:4])
+    )
+    
+    # Identify candlestick patterns
+    combined_df['Candlestick Pattern'] = combined_df.apply(
+        lambda row: identify_candlestick_pattern(row['SPY Open'], row['SPY High'], row['SPY Low'], row['SPY Close'],
+                                                 row['Prev SPY Open'], row['Prev SPY High'], row['Prev SPY Low'], row['Prev SPY Close']),
+        axis=1
+    )
+    st.write("Combined Data with VIX, SPY OHLC Values, Returns, and Candlestick Patterns:")
     st.dataframe(combined_df)
 else:
     st.write("No data available.")
