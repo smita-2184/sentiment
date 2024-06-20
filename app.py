@@ -4,6 +4,7 @@ import re
 from io import BytesIO
 import yfinance as yf
 from datetime import datetime, timedelta
+import plotly.graph_objs as go
 
 # Function to parse the sentiment file
 def parse_sentiment_file(file):
@@ -164,6 +165,37 @@ def identify_candlestick_pattern(open_price, high_price, low_price, close_price,
 
     return ", ".join(patterns) if patterns else "No Pattern"
 
+# Function to plot SPY chart with sentiment-based coloring
+def plot_spy_chart_with_sentiment(df):
+    colors = []
+    for index, row in df.iterrows():
+        if row['Bullish (%)'] > row['Bearish (%)']:
+            colors.append('green')
+        else:
+            colors.append('red')
+    
+    fig = go.Figure()
+    
+    fig.add_trace(go.Candlestick(
+        x=df['Date'],
+        open=df['SPY Open'],
+        high=df['SPY High'],
+        low=df['SPY Low'],
+        close=df['SPY Close'],
+        increasing=dict(line=dict(color='green')),
+        decreasing=dict(line=dict(color='red')),
+        name='SPY'
+    ))
+    
+    fig.update_layout(
+        title='SPY Candlestick Chart with Sentiment Coloring',
+        xaxis_title='Date',
+        yaxis_title='Price',
+        xaxis_rangeslider_visible=False
+    )
+    
+    return fig
+
 # Streamlit App
 st.title("Sentiment Data Parser")
 
@@ -247,6 +279,10 @@ if not combined_df.empty:
     )
     st.write("Combined Data with VIX, SPY OHLC Values, Returns, and Candlestick Patterns:")
     st.dataframe(combined_df)
+    
+    # Plot SPY chart with sentiment-based coloring
+    fig = plot_spy_chart_with_sentiment(combined_df)
+    st.plotly_chart(fig)
 else:
     st.write("No data available.")
 
