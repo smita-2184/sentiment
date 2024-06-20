@@ -1,3 +1,4 @@
 xlsxwriter
 streamlit
 yfinance
+plotly
